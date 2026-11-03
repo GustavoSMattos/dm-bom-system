@@ -1,4 +1,39 @@
+# Logs e relatórios de erro
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependências
 node_modules
+.pnpm-store
+
+# Ficheiros de Build e Compilação
 dist
+dist-ssr
+*.local
+
+# Ficheiros de Variáveis de Ambiente e Segurança (CRÍTICO)
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+
+# Editor de Código e IDEs
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Ficheiros do Sistema Operacional
 .DS_Store
+Thumbs.db
