@@ -92,7 +92,7 @@ export default function App() {
       setRegisteredUsers(data || []);
     } catch (err) {
       console.error("Erro ao carregar lista de usuários:", err.message);
-    } fontally {
+    } finally {
       setLoadingUsers(false);
     }
   };
@@ -343,7 +343,7 @@ export default function App() {
           </form>
 
           <p className="text-[11px] text-slate-500 text-center mt-6">
-            Novos usuários devem ser cadastrados diretamente no console Supabase.
+            Em caso de problemas tecnicos e solicitações, favor contatar.
           </p>
         </div>
       </div>
