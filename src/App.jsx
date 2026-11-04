@@ -35,6 +35,7 @@ export default function App() {
   const [selectedTrailerId, setSelectedTrailerId] = useState('');
   const [bomItems, setBomItems] = useState([]);
   const [produtosOmie, setProdutosOmie] = useState([]);
+  const [loadingOmie, setLoadingOmie] = useState(false);
 
   // --- MODAL DE NOVO TRAILER ---
   const [showNewBomModal, setShowNewBomModal] = useState(false);
@@ -91,8 +92,27 @@ export default function App() {
       setRegisteredUsers(data || []);
     } catch (err) {
       console.error("Erro ao carregar lista de usuários:", err.message);
-    } finally {
+    } fontally {
       setLoadingUsers(false);
+    }
+  };
+
+  // FUNÇÃO DE SINCRONIZAÇÃO COM OMIE ERP (LIVRE PARA ADMIN E OPERADOR)
+  const fetchOmieProdutos = async () => {
+    setLoadingOmie(true);
+    try {
+      const res = await fetch('/api/omie/produtos');
+      if (res.ok) {
+        const data = await res.json();
+        setProdutosOmie(data.produtos || []);
+      } else {
+        alert("Falha ao sincronizar com a API do Omie.");
+      }
+    } catch (err) {
+      console.error("Erro ao carregar insumos do Omie:", err);
+      alert("Erro na conexão com a API Omie.");
+    } finally {
+      setLoadingOmie(false);
     }
   };
 
@@ -117,32 +137,19 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Busca lista de usuários quando o Admin entra na aba de usuários
   useEffect(() => {
     if (activeTab === 'users' && userRole === 'Admin') {
       fetchRegisteredUsers();
     }
   }, [activeTab, userRole]);
 
-  // Carrega produtos do Omie ERP
   useEffect(() => {
-    async function fetchOmieProdutos() {
-      try {
-        const res = await fetch('/api/omie/produtos');
-        if (res.ok) {
-          const data = await res.json();
-          setProdutosOmie(data.produtos || []);
-        }
-      } catch (err) {
-        console.error("Erro ao carregar insumos do Omie:", err);
-      }
-    }
     fetchOmieProdutos();
   }, []);
 
   const isAdmin = userRole === 'Admin';
 
-  // Proteção de acesso
+  // Proteção de rotas ativas
   useEffect(() => {
     if (!isAdmin && (activeTab === 'pricing' || activeTab === 'snapshots' || activeTab === 'users')) {
       setActiveTab('bom');
@@ -273,7 +280,7 @@ export default function App() {
   // ==========================================
   const allMenuItems = [
     { id: 'bom', label: 'Engenharia & BOM', icon: Wrench, roles: ['Admin', 'Operador'] },
-    { id: 'mrp', label: 'Ficha de Produção / MRP', icon: Factory, roles: ['Admin', 'Operador'] },
+    { id: 'mrp', label: 'Relação estoque / MRP', icon: Factory, roles: ['Admin', 'Operador'] },
     { id: 'pricing', label: 'Precificação Industrial', icon: Calculator, roles: ['Admin'] },
     { id: 'snapshots', label: 'Snapshots Financeiros', icon: History, roles: ['Admin'] },
     { id: 'users', label: 'Gerenciamento de Usuários', icon: Users, roles: ['Admin'] },
@@ -299,7 +306,7 @@ export default function App() {
               <Factory className="w-6 h-6 text-cyan-400" />
             </div>
             <h1 className="text-2xl font-bold text-white tracking-wider">DM TRAILERS</h1>
-            <p className="text-xs text-slate-400 mt-1">Acesso Restrito à Plataforma</p>
+            <p className="text-xs text-slate-400 mt-1"></p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
@@ -336,7 +343,7 @@ export default function App() {
           </form>
 
           <p className="text-[11px] text-slate-500 text-center mt-6">
-            Novos usuários devem ser cadastrados diretamente no console Supabase.
+            Quaiquer problemas, contate o gestor do sistema.
           </p>
         </div>
       </div>
@@ -355,7 +362,7 @@ export default function App() {
             </div>
             <div>
               <h2 className="text-sm font-bold text-white tracking-wider">DM TRAILERS</h2>
-              <span className="text-[10px] text-slate-400 font-mono">v2.6 • INDUSTRIAL</span>
+              <span className="text-[10px] text-slate-400 font-mono">v2.7 • INDUSTRIAL</span>
             </div>
           </div>
 
@@ -381,19 +388,20 @@ export default function App() {
           </nav>
         </div>
 
+        {/* PERFIL DO USUÁRIO LOGADO - CATEGORIA/ROLE EXIBIDA APENAS PARA ADMIN */}
         <div className="p-4 border-t border-slate-900">
           <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-3 mb-3">
             <div className="text-xs font-medium text-slate-300 truncate">{session.user.email}</div>
-            <div className="flex items-center gap-1.5 mt-1">
-              <span className="text-[10px] text-slate-500">Perfil:</span>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                isAdmin 
-                  ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' 
-                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-              }`}>
-                {userRole}
-              </span>
-            </div>
+            
+            {/* EXIBIÇÃO CONDICIONAL: Apenas se for Admin */}
+            {isAdmin && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <span className="text-[10px] text-slate-500">Perfil:</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">
+                  {userRole}
+                </span>
+              </div>
+            )}
           </div>
 
           <button
@@ -409,6 +417,7 @@ export default function App() {
       {/* ÁREA PRINCIPAL */}
       <main className="flex-1 flex flex-col h-screen overflow-y-auto bg-slate-950/20">
         
+        {/* HEADER PRINCIPAL */}
         <header className="px-8 py-5 border-b border-slate-900/80 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-white">
@@ -418,16 +427,29 @@ export default function App() {
               {activeTab === 'snapshots' && 'Histórico de Snapshots Financeiros'}
               {activeTab === 'users' && 'Painel de Gerenciamento de Usuários'}
             </h1>
-            <p className="text-xs text-slate-400 mt-0.5">DM Comércio e Indústria de Reboques LTDA</p>
+            <p className="text-xs text-slate-400 mt-0.5">DM Indústria e Comércio de Reboques LTDA</p>
           </div>
 
-          <button 
-            onClick={() => setShowNewBomModal(true)}
-            className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-cyan-500/20 text-xs"
-          >
-            <Plus className="w-4 h-4" />
-            <span>NOVO MODELO TRAILER</span>
-          </button>
+          {/* BOTÕES DE AÇÃO: SINCRONIZAR OMIE + NOVO TRAILER */}
+          <div className="flex items-center gap-3">
+            {/* BOTÃO SINCRONIZAR OMIE (LIBERADO PARA ADMIN E OPERADOR) */}
+            <button
+              onClick={fetchOmieProdutos}
+              disabled={loadingOmie}
+              className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-cyan-400 font-semibold px-4 py-2.5 rounded-xl transition-all text-xs shadow-md"
+            >
+              <RefreshCw className={`w-4 h-4 ${loadingOmie ? 'animate-spin' : ''}`} />
+              <span>{loadingOmie ? 'SINCRONIZANDO...' : 'SINCRONIZAR OMIE'}</span>
+            </button>
+
+            <button 
+              onClick={() => setShowNewBomModal(true)}
+              className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-cyan-500/20 text-xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>NOVO MODELO TRAILER</span>
+            </button>
+          </div>
         </header>
 
         <div className="p-8">
@@ -757,7 +779,6 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* TABELA DE USUÁRIOS CADASTRADOS */}
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead>
