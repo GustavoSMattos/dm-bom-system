@@ -1,788 +1,535 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import {
-Package, Wrench, Shield, Layers, RefreshCw, Plus, Trash2,
-Lock, CheckCircle2, AlertCircle, TrendingUp, Save, BarChart3,
-FileSpreadsheet, LogOut, ShoppingBag, Calculator,
-Truck, LayoutDashboard, PieChart as PieChartIcon, X
+import React, { useState, useEffect } from 'react';
+import { 
+  Wrench, 
+  Factory, 
+  Calculator, 
+  History, 
+  Plus, 
+  Trash2, 
+  Download, 
+  LogOut, 
+  ShieldAlert, 
+  ChevronRight, 
+  Layers, 
+  TrendingUp, 
+  DollarSign, 
+  PackageCheck, 
+  AlertTriangle 
 } from 'lucide-react';
-import {
-ResponsiveContainer, PieChart, Pie, Cell, Tooltip
-} from 'recharts';
-// --- SUPABASE CLIENT CONFIG (INLINE SAFE FALLBACK) ---
-import { createClient } from '@supabase/supabase-js';
-const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-const supabaseAnonKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) || '';
-export const supabase = (supabaseUrl && supabaseAnonKey)
-? createClient(supabaseUrl, supabaseAnonKey)
-: null;
-// --- DADOS LOCAIS DE FALLBACK (CASO SUPABASE NÃO CONECTE) ---
-const INITIAL_PRODUCTS = [
-{ id: '1', omie_code: 'MP-001', name: 'Perfil de Alumínio Estrutural 50x50mm', unit: 'M', cost: 48.50, stock: 120 },
-{ id: '2', omie_code: 'MP-002', name: 'Chapa ACM Prata 4mm 1.22x2.44m', unit: 'M²', cost: 95.00, stock: 35 },
-{ id: '3', omie_code: 'MP-003', name: 'Eixo Torsional AL-KO 750kg com Freio', unit: 'UN', cost: 1450.00, stock: 4 },
-{ id: '4', omie_code: 'MP-004', name: 'Lanternas LED Traseiras Seladas 12V', unit: 'PAR', cost: 180.00, stock: 12 },
-{ id: '5', omie_code: 'MP-005', name: 'Acoplador de Engate Rápido 2000kg', unit: 'UN', cost: 320.00, stock: 8 },
-{ id: '6', omie_code: 'MP-006', name: 'Tubos de Aço Carbono 80x40x3mm', unit: 'M', cost: 62.00, stock: 85 }
-];
-const INITIAL_BOMS = [
-{ id: 'b1', code: 'TR-RACING-01', name: 'Trailer Fechado Racing P2 (2 Motos)', category: 'Trailer Fechado' },
-{ id: 'b2', code: 'TR-UTV-PRO', name: 'Trailer Plataforma UTV & Quadriciclo', category: 'Plataforma' },
-{ id: 'b3', code: 'TR-CARGO-BAU', name: 'Reboque Baú Carga Geral 2.50m', category: 'Baú Geral' }
-];
-const INITIAL_BOM_ITEMS = [
-{ id: 'bi1', bom_id: 'b1', productId: '1', code: 'MP-001', name: 'Perfil de Alumínio Estrutural 50x50mm', unit: 'M', cost: 48.50, stock: 120, qty: 18, lossPercent: 5 },
-{ id: 'bi2', bom_id: 'b1', productId: '2', code: 'MP-002', name: 'Chapa ACM Prata 4mm 1.22x2.44m', unit: 'M²', cost: 95.00, stock: 35, qty: 14, lossPercent: 4 },
-{ id: 'bi3', bom_id: 'b1', productId: '3', code: 'MP-003', name: 'Eixo Torsional AL-KO 750kg com Freio', unit: 'UN', cost: 1450.00, stock: 4, qty: 1, lossPercent: 0 },
-{ id: 'bi4', bom_id: 'b1', productId: '4', code: 'MP-004', name: 'Lanternas LED Traseiras Seladas 12V', unit: 'PAR', cost: 180.00, stock: 12, qty: 1, lossPercent: 0 },
-{ id: 'bi5', bom_id: 'b1', productId: '5', code: 'MP-005', name: 'Acoplador de Engate Rápido 2000kg', unit: 'UN', cost: 320.00, stock: 8, qty: 1, lossPercent: 0 }
-];
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { supabase } from './lib/supabase';
+
 export default function App() {
-// --- AUTENTICAÇÃO E SESSÃO ---
-const [session, setSession] = useState(null);
-const [userRole, setUserRole] = useState('admin'); // 'admin' ou 'operador'
-const [authLoading, setAuthLoading] = useState(true);
-const [loginEmail, setLoginEmail] = useState('');
-const [loginPassword, setLoginPassword] = useState('');
-const [authError, setAuthError] = useState('');
-// --- NAVEGAÇÃO E SISTEMA ---
-const [activeTab, setActiveTab] = useState('dashboard');
-const [loading, setLoading] = useState(false);
-const [statusMessage, setStatusMessage] = useState(null);
-// --- DADOS ---
-const [products, setProducts] = useState(INITIAL_PRODUCTS);
-const [boms, setBoms] = useState(INITIAL_BOMS);
-const [selectedBomId, setSelectedBomId] = useState('b1');
-const [bomItems, setBomItems] = useState(INITIAL_BOM_ITEMS);
-const [snapshots, setSnapshots] = useState([
-{ id: 's1', created_at: new Date().toISOString(), title: 'Trailer Fechado Racing P2 - Lote Q1', total_cost: 4122.25, suggested_price: 8588.02, margin_percent: 25 }
-]);
-// --- MODAL DE NOVO TRAILER ---
-const [showNewBomModal, setShowNewBomModal] = useState(false);
-const [newBomCode, setNewBomCode] = useState('');
-const [newBomName, setNewBomName] = useState('');
-// --- FICHA DE PRODUÇÃO (MRP) ---
-const [productionPlan, setProductionPlan] = useState([
-{ bomId: 'b1', code: 'TR-RACING-01', name: 'Trailer Fechado Racing P2 (2 Motos)', qty: 2 }
-]);
-const [selectedPlanBomId, setSelectedPlanBomId] = useState('b1');
-const [planQty, setPlanQty] = useState(1);
-// --- PARÂMETROS FINANCEIROS (MARKUP POR DENTRO) ---
-const [overheadPercent, setOverheadPercent] = useState(12);
-const [taxPercent, setTaxPercent] = useState(15);
-const [marginPercent, setMarginPercent] = useState(25);
-// --- INCLUSÃO DE ITENS ---
-const [selectedProductId, setSelectedProductId] = useState('');
-const [inputQty, setInputQty] = useState(1);
-const [inputLoss, setInputLoss] = useState(3);
-// ==========================================
-// INICIALIZAÇÃO SUPABASE E SESSÃO
-// ==========================================
-useEffect(() => {
-if (supabase) {
-supabase.auth.getSession().then(({ data: { session } }) => {
-setSession(session);
-if (session) {
-fetchUserProfile(session.user);
-loadDataFromSupabase();
-}
-setAuthLoading(false);
-});
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        setSession(session);
-        if (session) {
-          fetchUserProfile(session.user);
-          loadDataFromSupabase();
+  // --- ESTADOS DE AUTENTICAÇÃO E NAVEGAÇÃO ---
+  const [session, setSession] = useState(null);
+  const [loadingAuth, setLoadingAuth] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [registerRole, setRegisterRole] = useState('Operador'); // Perfil fixado no cadastro
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [activeTab, setActiveTab] = useState('bom');
+
+  // --- ESTADOS DE DADOS (TRAILERS E INSUMOS) ---
+  const [trailers, setTrailers] = useState([]);
+  const [selectedTrailerId, setSelectedTrailerId] = useState('');
+  const [bomItems, setBomItems] = useState([]);
+  const [produtosOmie, setProdutosOmie] = useState([]);
+
+  // --- MODAL DE NOVO TRAILER ---
+  const [showNewBomModal, setShowNewBomModal] = useState(false);
+  const [newBomCode, setNewBomCode] = useState('');
+  const [newBomName, setNewBomName] = useState('');
+
+  // --- FICHA DE PRODUÇÃO (MRP) ---
+  // CORRIGIDO: Inicializado como array vazio sem IDs "b1" estáticos
+  const [productionPlan, setProductionPlan] = useState([]);
+  const [selectedPlanBomId, setSelectedPlanBomId] = useState('');
+  const [planQty, setPlanQty] = useState(1);
+
+  // --- PARÂMETROS FINANCEIROS (MARKUP POR DENTRO) ---
+  const [overheadPercent, setOverheadPercent] = useState(12);
+  const [taxPercent, setTaxPercent] = useState(15);
+  const [marginPercent, setMarginPercent] = useState(25);
+
+  // --- INCLUSÃO DE ITENS ---
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [inputQty, setInputQty] = useState(1);
+  const [inputLoss, setInputLoss] = useState(3);
+
+  // ==========================================
+  // INICIALIZAÇÃO DE SESSÃO E SUPABASE
+  // ==========================================
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoadingAuth(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Carrega produtos vindos da API do Omie
+  useEffect(() => {
+    async function fetchOmieProdutos() {
+      try {
+        const res = await fetch('/api/omie/produtos');
+        if (res.ok) {
+          const data = await res.json();
+          setProdutosOmie(data.produtos || []);
+        }
+      } catch (err) {
+        console.error("Erro ao carregar insumos do Omie:", err);
+      }
+    }
+    fetchOmieProdutos();
+  }, []);
+
+  // Recuperar perfil do usuário (Admin ou Operador)
+  const userRole = session?.user?.user_metadata?.role || 'Operador';
+  const isAdmin = userRole === 'Admin';
+
+  // Ajusta a aba padrão se o operador não tiver permissão
+  useEffect(() => {
+    if (!isAdmin && (activeTab === 'pricing' || activeTab === 'snapshots')) {
+      setActiveTab('bom');
+    }
+  }, [userRole, activeTab, isAdmin]);
+
+  // ==========================================
+  // AUTENTICAÇÃO E CADASTRO COM PERFIL FIXO
+  // ==========================================
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    if (isRegistering) {
+      // Cadastro fixando a Categoria (Role) nos metadados da conta
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { role: registerRole }
         }
       });
-
-      return () => subscription.unsubscribe();
+      if (error) alert("Erro ao cadastrar: " + error.message);
+      else alert(`Conta de ${registerRole} criada com sucesso! Faça login.`);
     } else {
-      // Mock session se não houver cliente Supabase ativo
-      setSession({ user: { email: 'admin@dmtrailers.com.br' } });
-      setAuthLoading(false);
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) alert("Erro ao realizar login: " + error.message);
     }
-}, []);
-const fetchUserProfile = (user) => {
-const role = user?.user_metadata?.role || (user?.email?.includes('operador') ? 'operador' : 'admin');
-setUserRole(role);
-};
-const loadDataFromSupabase = async () => {
-if (!supabase) return;
-setLoading(true);
-try {
-const { data: prodData } = await supabase.from('products').select('*').order('name');
-if (prodData && prodData.length > 0) setProducts(prodData);
-      const { data: bomData } = await supabase.from('boms').select('*').order('code');
-      if (bomData && bomData.length > 0) {
-        setBoms(bomData);
-        if (!selectedBomId) setSelectedBomId(bomData[0].id);
-      }
+  };
 
-      const { data: snapData } = await supabase.from('pricing_snapshots').select('*').order('created_at', { ascending: false });
-      if (snapData) setSnapshots(snapData);
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
 
-    } catch (err) {
-      showStatus('Carregando em modo local...', 'info');
-    } finally {
-      setLoading(false);
-    }
-};
-const handleLogin = async (e) => {
-e.preventDefault();
-setAuthError('');
-setLoading(true);
-    if (supabase) {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
-        password: loginPassword,
-      });
-      if (error) setAuthError('Falha na autenticação: ' + error.message);
-    } else {
-      setSession({ user: { email: loginEmail } });
-    }
-    setLoading(false);
-};
-const handleLogout = async () => {
-if (supabase) await supabase.auth.signOut();
-setSession(null);
-};
-const showStatus = (text, type = 'info') => {
-setStatusMessage({ text, type });
-setTimeout(() => setStatusMessage(null), 4000);
-};
-// ==========================================
-// CÁLCULOS FINANCEIROS E ESTRUTURA
-// ==========================================
-const activeBomItems = useMemo(() => {
-return bomItems.filter(item => item.bom_id === selectedBomId);
-}, [bomItems, selectedBomId]);
-const totalCost = useMemo(() => {
-return activeBomItems.reduce((acc, item) => {
-const effQty = item.qty * (1 + item.lossPercent / 100);
-return acc + (effQty * item.cost);
-}, 0);
-}, [activeBomItems]);
-const suggestedPrice = useMemo(() => {
-const totalDeductions = overheadPercent + taxPercent + marginPercent;
-if (totalDeductions >= 100) return 0;
-return totalCost / (1 - (totalDeductions / 100));
-}, [totalCost, overheadPercent, taxPercent, marginPercent]);
-const taxValue = suggestedPrice * (taxPercent / 100);
-const overheadValue = suggestedPrice * (overheadPercent / 100);
-const netProfitValue = suggestedPrice * (marginPercent / 100);
-// MANIPULAÇÃO DA BOM
-const handleAddItem = async () => {
-if (userRole !== 'admin') {
-showStatus('Apenas administradores podem modificar a BOM de engenharia.', 'error');
-return;
-}
-if (!selectedProductId || !selectedBomId) return;
-    const prod = products.find(p => p.id === selectedProductId);
-    if (!prod) return;
+  // ==========================================
+  // AÇÕES DE CADASTRO DE TRAILERS E INSUMOS (BOM)
+  // ==========================================
+  const handleCreateTrailer = (e) => {
+    e.preventDefault();
+    if (!newBomCode || !newBomName) return;
 
-    const newItem = {
-      id: 'bi_' + Date.now(),
-      bom_id: selectedBomId,
-      product_id: prod.id,
-      code: prod.omie_code || 'LOCAL',
-      name: prod.name,
-      unit: prod.unit,
-      cost: parseFloat(prod.cost),
-      stock: parseFloat(prod.stock || 0),
-      qty: parseFloat(inputQty),
-      lossPercent: parseFloat(inputLoss)
+    // Gera um UUID válido para o novo modelo de trailer
+    const newTrailer = {
+      id: crypto.randomUUID(),
+      code: newBomCode,
+      name: newBomName,
     };
 
-    if (supabase) {
-      const { error } = await supabase.from('bom_items').insert([{
-        bom_id: selectedBomId,
-        product_id: prod.id,
-        quantity: parseFloat(inputQty),
-        loss_percent: parseFloat(inputLoss)
-      }]);
-      if (error) {
-        showStatus('Erro ao salvar no banco: ' + error.message, 'error');
-        return;
-      }
-    }
-
-    setBomItems(prev => [...prev, newItem]);
-    showStatus(`Insumo "${prod.name}" adicionado à estrutura!`, 'success');
-};
-const handleRemoveItem = async (itemId) => {
-if (userRole !== 'admin') return;
-    if (supabase) {
-      await supabase.from('bom_items').delete().eq('id', itemId);
-    }
-    setBomItems(prev => prev.filter(i => i.id !== itemId));
-    showStatus('Componente removido.', 'info');
-};
-// CADASTRO NOVO TRAILER (BOM)
-const handleCreateNewBom = async (e) => {
-e.preventDefault();
-if (!newBomCode.trim() || !newBomName.trim()) return;
-    const newBom = {
-      id: 'b_' + Date.now(),
-      code: newBomCode.trim().toUpperCase(),
-      name: newBomName.trim(),
-      category: 'Trailer'
-    };
-
-    if (supabase) {
-      const { data, error } = await supabase.from('boms').insert([{
-        code: newBom.code,
-        name: newBom.name,
-        overhead_percent: overheadPercent,
-        tax_percent: taxPercent,
-        margin_percent: marginPercent
-      }]).select('*');
-
-      if (error) {
-        showStatus('Erro ao cadastrar trailer: ' + error.message, 'error');
-        return;
-      } else if (data && data[0]) {
-        newBom.id = data[0].id;
-      }
-    }
-
-    setBoms(prev => [...prev, newBom]);
-    setSelectedBomId(newBom.id);
-    setShowNewBomModal(false);
+    setTrailers(prev => [...prev, newTrailer]);
+    setSelectedTrailerId(newTrailer.id);
     setNewBomCode('');
     setNewBomName('');
-    showStatus(`Trailer "${newBom.name}" criado com sucesso!`, 'success');
-};
-// EXPLOSÃO MRP
-const calculateMaterialNeeds = () => {
-const needsMap = {};
-productionPlan.forEach(plan => {
-const planItems = bomItems.filter(i => i.bom_id === plan.bomId);
-planItems.forEach(item => {
-const requiredQty = item.qty * (1 + item.lossPercent / 100) * plan.qty;
-if (!needsMap[item.productId || item.code]) {
-needsMap[item.productId || item.code] = {
-code: item.code,
-name: item.name,
-unit: item.unit,
-cost: item.cost,
-stock: item.stock || 0,
-requiredQty: 0
-};
-}
-needsMap[item.productId || item.code].requiredQty += requiredQty;
-});
-});
-return Object.values(needsMap);
-};
-const materialNeeds = calculateMaterialNeeds();
-// EXPORTAR CSV EXCEL BRASIL
-const handleExportCSV = () => {
-const headers = "Código;Insumo;Unidade;Estoque Atual;Necessidade Produção;Saldo Projetado;Comprar Sugerido;Custo Estimado (R$)\n";
-const rows = materialNeeds.map(item => {
-const balance = item.stock - item.requiredQty;
-const toBuy = balance < 0 ? Math.abs(balance) : 0;
-const buyCost = toBuy * item.cost;
-return `${item.code};"${item.name}";${item.unit};${item.stock};${item.requiredQty.toFixed(2).replace('.', ',')};${balance.toFixed(2).replace('.', ',')};${toBuy.toFixed(2).replace('.', ',')};${buyCost.toFixed(2).replace('.', ',')}`;
-}).join("\n");
-    const blob = new Blob(["\uFEFF" + headers + rows], { type: 'text/csv;charset=utf-8;' });
+    setShowNewBomModal(false);
+  };
+
+  const handleAddInsumo = (e) => {
+    e.preventDefault();
+    if (!selectedTrailerId || !selectedProductId) return;
+
+    const prodObj = produtosOmie.find(p => String(p.codigo_produto) === String(selectedProductId));
+    const nomeInsumo = prodObj ? prodObj.descricao : `Insumo #${selectedProductId}`;
+    const custoUnit = prodObj ? (prodObj.valor_unitario || 10) : 10;
+
+    // CORRIGIDO: Payload sem ID sintético "b1" (PostgreSQL gera UUID v4 limpo)
+    const newInsumo = {
+      id: crypto.randomUUID(),
+      trailer_id: selectedTrailerId,
+      insumo_nome: nomeInsumo,
+      quantidade: parseFloat(inputQty),
+      unidade: prodObj?.unidade || 'UN',
+      custo_unitario: parseFloat(custoUnit),
+      perda_tecnica_pct: parseFloat(inputLoss),
+      lead_time_dias: 5
+    };
+
+    setBomItems(prev => [...prev, newInsumo]);
+  };
+
+  const handleRemoveInsumo = (insumoId) => {
+    setBomItems(prev => prev.filter(item => item.id !== insumoId));
+  };
+
+  // ==========================================
+  // AÇÕES DO MRP / FICHA DE PRODUÇÃO
+  // ==========================================
+  const handleAddToPlan = (e) => {
+    e.preventDefault();
+    if (!selectedPlanBomId) return;
+
+    const trailerObj = trailers.find(t => t.id === selectedPlanBomId);
+    if (!trailerObj) return;
+
+    setProductionPlan(prev => [
+      ...prev,
+      {
+        bomId: trailerObj.id,
+        code: trailerObj.code,
+        name: trailerObj.name,
+        qty: parseInt(planQty, 10)
+      }
+    ]);
+  };
+
+  const handleRemoveFromPlan = (index) => {
+    setProductionPlan(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Exportar relatório MRP para CSV compatível com Excel Brasil
+  const exportMRPToCSV = () => {
+    let csvContent = "\uFEFFInsumo;Quantidade Necessária;Unidade;Perda Técnica (%);Custo Estimado (R$)\n";
+    
+    bomItems.forEach(item => {
+      const qtdTotal = item.quantidade * (1 + item.perda_tecnica_pct / 100);
+      const custoTotal = qtdTotal * item.custo_unitario;
+      csvContent += `${item.insumo_nome};${qtdTotal.toFixed(2).replace('.', ',')};${item.unidade};${item.perda_tecnica_pct};${custoTotal.toFixed(2).replace('.', ',')}\n`;
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.href = url;
-    link.download = `Necessidade_Materiais_MRP_${new Date().toISOString().slice(0,10)}.csv`;
+    link.setAttribute("href", url);
+    link.setAttribute("download", `MRP_Producao_DM_Trailers_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
     link.click();
-    showStatus('Relatório CSV baixado com sucesso!', 'success');
-};
-const chartData = [
-{ name: 'Custo BOM Direto', value: totalCost, color: '#38bdf8' },
-{ name: 'Overhead / Fixo', value: overheadValue, color: '#f59e0b' },
-{ name: 'Impostos Retidos', value: taxValue, color: '#f43f5e' },
-{ name: 'Lucro Líquido Target', value: netProfitValue, color: '#10b981' }
-];
-// RENDER: LOGIN
-if (authLoading) {
-return (
-<div className="min-h-screen bg-[#060911] text-slate-100 flex items-center justify-center">
-<RefreshCw className="w-8 h-8 animate-spin text-sky-400" />
-</div>
-);
-}
-if (!session) {
-return (
-<div className="min-h-screen bg-[#060911] text-slate-100 flex items-center justify-center p-4 font-sans">
-<div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-6 backdrop-blur-xl">
-<div className="flex items-center gap-4">
-<div className="p-3 bg-gradient-to-br from-sky-400 to-indigo-600 text-slate-950 rounded-2xl shadow-lg">
-<Truck className="w-8 h-8" />
-</div>
-<div>
-<h1 className="text-xl font-extrabold text-white">DM BOM SYSTEM</h1>
-<p className="text-xs text-slate-400">DM Comércio e Indústria de Reboques</p>
-</div>
-</div>
-          {authError && (
-            <div className="p-3 bg-rose-950/40 border border-rose-800 text-rose-300 text-xs rounded-2xl flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{authError}</span>
-            </div>
-          )}
+    document.body.removeChild(link);
+  };
 
-          <form onSubmit={handleLogin} className="space-y-4">
+  // ==========================================
+  // CÁLCULOS FINANCEIROS E MARKUP POR DENTRO
+  // ==========================================
+  const selectedTrailer = trailers.find(t => t.id === selectedTrailerId);
+  const currentBomItems = bomItems.filter(item => item.trailer_id === selectedTrailerId);
+  
+  const custoDiretoBOM = currentBomItems.reduce((acc, item) => {
+    const qtdComPerda = item.quantidade * (1 + item.perda_tecnica_pct / 100);
+    return acc + (qtdComPerda * item.custo_unitario);
+  }, 0);
+
+  const somaAliquotas = (parseFloat(overheadPercent) || 0) + (parseFloat(taxPercent) || 0) + (parseFloat(marginPercent) || 0);
+  const divisorMarkup = 1 - (somaAliquotas / 100);
+  const precoFinalCalculado = divisorMarkup > 0 ? custoDiretoBOM / divisorMarkup : 0;
+
+  const valorOverhead = precoFinalCalculado * (overheadPercent / 100);
+  const valorImpostos = precoFinalCalculado * (taxPercent / 100);
+  const valorMargem = precoFinalCalculado * (marginPercent / 100);
+
+  // ==========================================
+  // DEFINIÇÃO DO MENU LATERAL (SIDEBAR COM RBAC)
+  // ==========================================
+  const allMenuItems = [
+    { id: 'bom', label: 'Engenharia & BOM', icon: Wrench, roles: ['Admin', 'Operador'] },
+    { id: 'mrp', label: 'Ficha de Produção / MRP', icon: Factory, roles: ['Admin', 'Operador'] },
+    { id: 'pricing', label: 'Precificação Industrial', icon: Calculator, roles: ['Admin'] },
+    { id: 'snapshots', label: 'Snapshots Financeiros', icon: History, roles: ['Admin'] },
+  ];
+
+  const visibleMenuItems = allMenuItems.filter(item => item.roles.includes(userRole));
+
+  // RENDERIZAÇÃO DA TELA DE LOGIN / CADASTRO
+  if (loadingAuth) {
+    return (
+      <div className="min-h-screen bg-[#060911] flex items-center justify-center text-slate-400">
+        Carregando DM BOM System...
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-[#060911] flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-slate-900/60 border border-slate-800 rounded-3xl p-8 backdrop-blur-xl">
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center mb-3">
+              <Factory className="w-6 h-6 text-cyan-400" />
+            </div>
+            <h1 className="text-2xl font-bold text-white tracking-wider">DM TRAILERS</h1>
+            <p className="text-xs text-slate-400 mt-1">BOM & MRP Industrial System</p>
+          </div>
+
+          <form onSubmit={handleAuth} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">E-mail Corporativo</label>
+              <label className="block text-xs font-semibold text-slate-400 mb-1">E-MAIL</label>
               <input 
                 type="email" 
                 required
-                value={loginEmail}
-                onChange={e => setLoginEmail(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-slate-100 focus:outline-none focus:border-sky-400"
-                placeholder="seu.email@dmtrailers.com.br"
+                className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500"
+                placeholder="usuario@dmtrailers.com.br"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
               />
             </div>
+
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Senha</label>
+              <label className="block text-xs font-semibold text-slate-400 mb-1">SENHA</label>
               <input 
                 type="password" 
                 required
-                value={loginPassword}
-                onChange={e => setLoginPassword(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-slate-100 focus:outline-none focus:border-sky-400"
+                className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500"
                 placeholder="••••••••"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
               />
             </div>
 
+            {isRegistering && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">CATEGORIA DO USUÁRIO</label>
+                <select
+                  value={registerRole}
+                  onChange={e => setRegisterRole(e.target.value)}
+                  className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="Operador">Operador (Engenharia & MRP)</option>
+                  <option value="Admin">Admin (Acesso Total + Financeiro)</option>
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">* A categoria é fixada no cadastro e não poderá ser alterada na plataforma.</p>
+              </div>
+            )}
+
             <button 
-              type="submit" 
-              className="w-full py-3.5 bg-gradient-to-r from-sky-400 to-indigo-500 text-slate-950 font-bold rounded-2xl text-sm transition-all shadow-lg hover:brightness-110 flex items-center justify-center gap-2"
+              type="submit"
+              className="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-3 rounded-xl transition-all shadow-lg shadow-cyan-500/20 text-sm mt-2"
             >
-              <Lock className="w-4 h-4" /> Entrar no Sistema
+              {isRegistering ? 'CADASTRAR CONTA' : 'ACESSAR SISTEMA'}
             </button>
           </form>
+
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => setIsRegistering(!isRegistering)}
+              className="text-xs text-slate-400 hover:text-cyan-400 transition-colors"
+            >
+              {isRegistering ? 'Já possui uma conta? Faça Login' : 'Novo por aqui? Cadastre um usuário'}
+            </button>
+          </div>
         </div>
       </div>
     );
-}
-// RENDER: PAINEL PRINCIPAL DFB (DARK MIDNIGHT GLASS)
-return (
-<div className="min-h-screen bg-[#060911] text-slate-100 flex font-sans selection:bg-sky-400 selection:text-slate-950">
-      {/* SIDEBAR NAVEGAÇÃO LATERAL */}
-      <aside className="w-64 bg-slate-900/40 border-r border-slate-800/60 backdrop-blur-2xl flex flex-col justify-between shrink-0">
+  }
+
+  return (
+    <div className="min-h-screen bg-[#060911] text-slate-100 flex overflow-hidden font-sans">
+      
+      {/* SIDEBAR LATERAL DE NAVEGAÇÃO */}
+      <aside className="w-64 bg-slate-950/80 border-r border-slate-900 flex flex-col justify-between backdrop-blur-xl">
         <div>
-          <div className="p-5 border-b border-slate-800/60 flex items-center gap-3">
-            <div className="p-2.5 bg-gradient-to-br from-sky-400 to-indigo-600 text-slate-950 rounded-2xl shadow-md">
-              <Truck className="w-5 h-5 stroke-[2.2]" />
+          {/* LOGO */}
+          <div className="p-6 border-b border-slate-900 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
+              <Factory className="w-5 h-5 text-cyan-400" />
             </div>
             <div>
-              <h1 className="font-extrabold text-sm tracking-wide text-white">DM TRAILERS</h1>
-              <p className="text-[10px] text-sky-400 font-mono tracking-wider font-semibold">ENGINEERING & MRP</p>
+              <h2 className="text-sm font-bold text-white tracking-wider">DM TRAILERS</h2>
+              <span className="text-[10px] text-slate-400 font-mono">v2.4 • BOM SYSTEM</span>
             </div>
           </div>
 
-          <nav className="p-3 space-y-1.5 mt-3">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold transition-all ${activeTab === 'dashboard' ? 'bg-sky-500/10 text-sky-300 border border-sky-500/30' : 'text-slate-400 hover:bg-slate-800/40'}`}
-            >
-              <LayoutDashboard className="w-4 h-4" />
-              <span>Overview & KPI</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('engineering')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold transition-all ${activeTab === 'engineering' ? 'bg-sky-500/10 text-sky-300 border border-sky-500/30' : 'text-slate-400 hover:bg-slate-800/40'}`}
-            >
-              <Layers className="w-4 h-4" />
-              <span>Engenharia & BOM</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('production')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold transition-all ${activeTab === 'production' ? 'bg-sky-500/10 text-sky-300 border border-sky-500/30' : 'text-slate-400 hover:bg-slate-800/40'}`}
-            >
-              <Calculator className="w-4 h-4" />
-              <span>Ficha de Produção / MRP</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('pricing')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold transition-all ${activeTab === 'pricing' ? 'bg-sky-500/10 text-sky-300 border border-sky-500/30' : 'text-slate-400 hover:bg-slate-800/40'}`}
-            >
-              <TrendingUp className="w-4 h-4" />
-              <span>Precificação & DRE</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('snapshots')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold transition-all ${activeTab === 'snapshots' ? 'bg-sky-500/10 text-sky-300 border border-sky-500/30' : 'text-slate-400 hover:bg-slate-800/40'}`}
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>Snapshots Financeiros</span>
-            </button>
+          {/* MENUS DINÂMICOS CONFORME PERFIL (RBAC) */}
+          <nav className="p-4 space-y-1.5">
+            {visibleMenuItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-semibold transition-all ${
+                    isActive
+                      ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-lg shadow-cyan-500/5'
+                      : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
           </nav>
         </div>
 
-        <div className="p-3 border-t border-slate-800/60 space-y-3">
-          <div className="bg-slate-950/60 p-3 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className={`w-2.5 h-2.5 rounded-full ${userRole === 'admin' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-              <span className="text-xs font-semibold capitalize text-slate-300">Modo: {userRole}</span>
+        {/* PERFIL DO USUÁRIO & LOGOUT */}
+        <div className="p-4 border-t border-slate-900">
+          <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-3 mb-3">
+            <div className="text-xs font-medium text-slate-300 truncate">{session.user.email}</div>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="text-[10px] text-slate-500">Perfil:</span>
+              <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20">
+                {userRole}
+              </span>
             </div>
-            <button 
-              onClick={() => setUserRole(userRole === 'admin' ? 'operador' : 'admin')}
-              className="text-[10px] text-sky-400 hover:underline font-mono"
-            >
-              Alternar
-            </button>
           </div>
 
-          <button 
+          <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-950/20 rounded-2xl transition-all"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-slate-800 text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/20 transition-all text-xs font-semibold"
           >
             <LogOut className="w-4 h-4" />
-            <span>Sair</span>
+            <span>Sair da Conta</span>
           </button>
         </div>
       </aside>
 
-      {/* ÁREA CENTRAL */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        <header className="sticky top-0 z-20 bg-[#060911]/80 border-b border-slate-800/60 backdrop-blur-xl px-8 py-4 flex items-center justify-between">
-          <h2 className="text-sm font-bold tracking-wider text-slate-200 uppercase font-mono">
-            {activeTab === 'dashboard' && 'Visão Geral & Métricas da Fábrica'}
-            {activeTab === 'engineering' && 'Engenharia de Estruturas (BOM)'}
-            {activeTab === 'production' && 'Ordens de Fabricação & MRP'}
-            {activeTab === 'pricing' && 'Formação de Preço Sugerido (DRE)'}
-            {activeTab === 'snapshots' && 'Histórico de Precificação Registrado'}
-          </h2>
-
-          <div className="flex items-center gap-4">
-            {userRole === 'admin' && (
-              <button
-                onClick={() => setShowNewBomModal(true)}
-                className="px-4 py-2 bg-gradient-to-r from-sky-400 to-indigo-500 text-slate-950 font-bold rounded-2xl text-xs flex items-center gap-2 shadow-lg"
-              >
-                <Plus className="w-4 h-4 stroke-[2.5]" /> Novo Trailer
-              </button>
-            )}
+      {/* ÁREA DE CONTEÚDO PRINCIPAL */}
+      <main className="flex-1 flex flex-col h-screen overflow-y-auto bg-slate-950/20">
+        
+        {/* HEADER */}
+        <header className="px-8 py-5 border-b border-slate-900/80 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-white">
+              {activeTab === 'bom' && 'Engenharia de Produto & Árvore BOM'}
+              {activeTab === 'mrp' && 'Planejamento de Fabricação (MRP)'}
+              {activeTab === 'pricing' && 'Precificação Industrial (Markup por Dentro)'}
+              {activeTab === 'snapshots' && 'Histórico de Snapshots Financeiros'}
+            </h1>
+            <p className="text-xs text-slate-400 mt-0.5">DM Comércio e Indústria de Reboques LTDA</p>
           </div>
+
+          <button 
+            onClick={() => setShowNewBomModal(true)}
+            className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-cyan-500/20 text-xs"
+          >
+            <Plus className="w-4 h-4" />
+            <span>NOVO MODELO TRAILER</span>
+          </button>
         </header>
 
-        {statusMessage && (
-          <div className={`px-8 py-2.5 text-xs flex items-center justify-between border-b ${statusMessage.type === 'error' ? 'bg-rose-950/40 border-rose-800/60 text-rose-300' : 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'}`}>
-            <div className="flex items-center gap-2 font-medium">
-              {statusMessage.type === 'error' ? <AlertCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-              <span>{statusMessage.text}</span>
-            </div>
-          </div>
-        )}
-
-        <main className="p-8 max-w-7xl w-full mx-auto space-y-8 flex-1">
+        {/* CORPO DE VIEWS */}
+        <div className="p-8">
           
-          {/* TAB 1: DASHBOARD OVERVIEW */}
-          {activeTab === 'dashboard' && (
-            <div className="space-y-8">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-xl">
-                  <div className="flex items-center justify-between text-slate-400 text-xs mb-3">
-                    <span>Modelos Ativos</span>
-                    <Package className="w-4 h-4 text-sky-400" />
-                  </div>
-                  <p className="text-3xl font-extrabold text-white font-mono">{boms.length}</p>
-                </div>
-
-                <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-xl">
-                  <div className="flex items-center justify-between text-slate-400 text-xs mb-3">
-                    <span>Custo BOM Ativo</span>
-                    <Wrench className="w-4 h-4 text-indigo-400" />
-                  </div>
-                  <p className="text-3xl font-extrabold text-white font-mono">R$ {totalCost.toFixed(2)}</p>
-                </div>
-
-                <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-xl">
-                  <div className="flex items-center justify-between text-slate-400 text-xs mb-3">
-                    <span>Insumos Catálogo</span>
-                    <ShoppingBag className="w-4 h-4 text-amber-400" />
-                  </div>
-                  <p className="text-3xl font-extrabold text-white font-mono">{products.length}</p>
-                </div>
-
-                <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-xl">
-                  <div className="flex items-center justify-between text-slate-400 text-xs mb-3">
-                    <span>Margem Alvo</span>
-                    <TrendingUp className="w-4 h-4 text-emerald-400" />
-                  </div>
-                  <p className="text-3xl font-extrabold text-emerald-400 font-mono">{marginPercent}%</p>
-                </div>
+          {/* VISÃO 1: ENGENHARIA & ÁRVORE BOM */}
+          {activeTab === 'bom' && (
+            <div className="space-y-6">
+              {/* SELETOR DE TRAILER */}
+              <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
+                <label className="block text-xs font-semibold text-slate-400 mb-2">SELECIONE O MODELO DE REBOQUE</label>
+                <select
+                  value={selectedTrailerId}
+                  onChange={e => setSelectedTrailerId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="">-- Selecione um Modelo de Trailer --</option>
+                  {trailers.map(t => (
+                    <option key={t.id} value={t.id}>{t.code} - {t.name}</option>
+                  ))}
+                </select>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 rounded-3xl p-7 backdrop-blur-xl space-y-6">
-                  <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                    <PieChartIcon className="w-4 h-4 text-sky-400" /> Distribuição do Preço Final Sugerido
-                  </h3>
-                  <div className="h-72">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={chartData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={75}
-                          outerRadius={105}
-                          paddingAngle={5}
-                          dataKey="value"
-                        >
-                          {chartData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(value) => `R$ ${Number(value).toFixed(2)}`} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-7 backdrop-blur-xl space-y-4">
-                  <h3 className="text-sm font-bold text-slate-200">Resumo de Formação de Preço</h3>
-                  <div className="space-y-3 text-xs">
-                    <div className="flex justify-between py-2 border-b border-slate-800">
-                      <span className="text-slate-400">Custo Direto:</span>
-                      <span className="font-mono font-bold text-slate-200">R$ {totalCost.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-slate-800">
-                      <span className="text-slate-400">Overhead ({overheadPercent}%):</span>
-                      <span className="font-mono text-amber-400">R$ {overheadValue.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-slate-800">
-                      <span className="text-slate-400">Impostos ({taxPercent}%):</span>
-                      <span className="font-mono text-rose-400">R$ {taxValue.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-slate-800">
-                      <span className="text-slate-400">Lucro Líquido ({marginPercent}%):</span>
-                      <span className="font-mono text-emerald-400">R$ {netProfitValue.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between py-3 pt-4 font-bold text-sm">
-                      <span className="text-white">Preço Sugerido:</span>
-                      <span className="font-mono text-sky-400">R$ {suggestedPrice.toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: ENGENHARIA BOM */}
-          {activeTab === 'engineering' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="space-y-6">
-                <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-xl space-y-4">
-                  <h3 className="text-xs font-bold uppercase text-sky-400 flex items-center gap-2 font-mono">
-                    <Package className="w-4 h-4" /> Selecionar Trailer
-                  </h3>
-                  <select 
-                    value={selectedBomId} 
-                    onChange={e => setSelectedBomId(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3.5 text-xs text-slate-100 font-medium"
-                  >
-                    {boms.map(b => (
-                      <option key={b.id} value={b.id}>{b.code} - {b.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {userRole === 'admin' && (
-                  <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-xl space-y-4">
-                    <h3 className="text-xs font-bold uppercase text-emerald-400 flex items-center gap-2 font-mono">
-                      <Plus className="w-4 h-4" /> Incluir Componente
+              {selectedTrailer ? (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* FORMULÁRIO ADICIONAR INSUMO */}
+                  <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
+                    <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                      <Plus className="w-4 h-4 text-cyan-400" /> Adicionar Insumo à Estrutura
                     </h3>
-
-                    <div>
-                      <label className="block text-[11px] text-slate-400 mb-1">Selecionar Insumo</label>
-                      <select 
-                        value={selectedProductId}
-                        onChange={e => setSelectedProductId(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-xs text-slate-200"
-                      >
-                        <option value="">Selecione...</option>
-                        {products.map(p => (
-                          <option key={p.id} value={p.id}>[{p.omie_code || 'LOCAL'}] {p.name} - R$ {parseFloat(p.cost).toFixed(2)}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
+                    <form onSubmit={handleAddInsumo} className="space-y-4">
                       <div>
-                        <label className="block text-[11px] text-slate-400 mb-1">Quantidade</label>
-                        <input 
-                          type="number" 
-                          step="0.0001"
-                          value={inputQty}
-                          onChange={e => setInputQty(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-xs text-slate-200 font-mono"
-                        />
+                        <label className="block text-xs font-semibold text-slate-400 mb-1">INSUMO (OMIE ERP)</label>
+                        <select
+                          value={selectedProductId}
+                          onChange={e => setSelectedProductId(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                        >
+                          <option value="">-- Escolher Produto --</option>
+                          {produtosOmie.map(p => (
+                            <option key={p.codigo_produto} value={p.codigo_produto}>
+                              {p.descricao} (R$ {p.valor_unitario || 10})
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                      <div>
-                        <label className="block text-[11px] text-slate-400 mb-1">Perda (%)</label>
-                        <input 
-                          type="number" 
-                          step="0.1"
-                          value={inputLoss}
-                          onChange={e => setInputLoss(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-xs text-slate-200 font-mono"
-                        />
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">QTD. BASE</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={inputQty}
+                            onChange={e => setInputQty(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 mb-1">PERDA (%)</label>
+                          <input
+                            type="number"
+                            value={inputLoss}
+                            onChange={e => setInputLoss(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
                       </div>
-                    </div>
 
-                    <button 
-                      onClick={handleAddItem}
-                      disabled={!selectedProductId}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-2xl text-xs font-bold flex items-center justify-center gap-2"
-                    >
-                      <Plus className="w-4 h-4" /> Adicionar à Estrutura
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 rounded-3xl p-7 backdrop-blur-xl flex flex-col justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-200 mb-6 flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-sky-400" /> Componentes do Modelo Selecionado
-                  </h3>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-950/60 text-slate-400 uppercase font-mono text-[10px]">
-                        <tr>
-                          <th className="p-3">Código</th>
-                          <th className="p-3">Insumo</th>
-                          <th className="p-3 text-right">Qtd Base</th>
-                          <th className="p-3 text-right">Perda %</th>
-                          <th className="p-3 text-right">Custo Un.</th>
-                          <th className="p-3 text-right">Subtotal</th>
-                          {userRole === 'admin' && <th className="p-3 text-center">Ação</th>}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                        {activeBomItems.map(item => {
-                          const effQty = item.qty * (1 + item.lossPercent / 100);
-                          const lineTotal = effQty * item.cost;
-                          return (
-                            <tr key={item.id} className="hover:bg-slate-800/40">
-                              <td className="p-3 font-mono text-slate-400">{item.code}</td>
-                              <td className="p-3 font-semibold text-slate-200">{item.name}</td>
-                              <td className="p-3 text-right font-mono">{item.qty} {item.unit}</td>
-                              <td className="p-3 text-right font-mono text-amber-400">{item.lossPercent}%</td>
-                              <td className="p-3 text-right font-mono">R$ {item.cost.toFixed(2)}</td>
-                              <td className="p-3 text-right font-mono font-bold text-sky-400">R$ {lineTotal.toFixed(2)}</td>
-                              {userRole === 'admin' && (
-                                <td className="p-3 text-center">
-                                  <button onClick={() => handleRemoveItem(item.id)} className="text-slate-500 hover:text-rose-400">
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </td>
-                              )}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="mt-8 pt-5 border-t border-slate-800/80 flex items-center justify-between">
-                  <span className="text-xs text-slate-400">Total Custo BOM Direto:</span>
-                  <span className="text-2xl font-extrabold font-mono text-emerald-400">R$ {totalCost.toFixed(2)}</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: MRP E COMPRAS */}
-          {activeTab === 'production' && (
-            <div className="space-y-8">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-xl space-y-5">
-                  <h3 className="text-xs font-bold uppercase text-sky-400 flex items-center gap-2 font-mono">
-                    <Calculator className="w-4 h-4" /> Definir Lote Industrial
-                  </h3>
-                  
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">Modelo de Trailer</label>
-                    <select 
-                      value={selectedPlanBomId} 
-                      onChange={e => setSelectedPlanBomId(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-xs text-slate-200"
-                    >
-                      {boms.map(b => (
-                        <option key={b.id} value={b.id}>{b.code} - {b.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">Qtd Fabricar</label>
-                    <input 
-                      type="number" 
-                      min="1"
-                      value={planQty}
-                      onChange={e => setPlanQty(parseInt(e.target.value) || 1)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-xs text-slate-200 font-mono"
-                    />
-                  </div>
-
-                  <button 
-                    onClick={() => {
-                      const bomObj = boms.find(b => b.id === selectedPlanBomId);
-                      if (bomObj) {
-                        setProductionPlan(prev => [...prev, { bomId: selectedPlanBomId, code: bomObj.code, name: bomObj.name, qty: planQty }]);
-                      }
-                    }}
-                    className="w-full py-3 bg-sky-500 text-slate-950 font-bold rounded-2xl text-xs flex items-center justify-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" /> Adicionar ao Lote
-                  </button>
-                </div>
-
-                <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 rounded-3xl p-7 backdrop-blur-xl flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-6">
-                      <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                        <ShoppingBag className="w-4 h-4 text-emerald-400" /> Explosão MRP & Necessidade de Materiais
-                      </h3>
-                      <button 
-                        onClick={handleExportCSV}
-                        className="px-4 py-2 bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 rounded-2xl text-xs font-bold flex items-center gap-2"
+                      <button
+                        type="submit"
+                        className="w-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 font-bold py-2.5 rounded-xl transition-all text-xs"
                       >
-                        <FileSpreadsheet className="w-4 h-4" /> Exportar CSV
+                        INCLUIR NO TRAILER
                       </button>
-                    </div>
+                    </form>
+                  </div>
+
+                  {/* TABELA DE ESTRUTURA BOM */}
+                  <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
+                    <h3 className="text-sm font-bold text-white mb-4 flex items-center justify-between">
+                      <span>Árvore de Materiais: {selectedTrailer.name}</span>
+                      <span className="text-xs text-cyan-400 font-mono">Custo BOM: R$ {custoDiretoBOM.toFixed(2)}</span>
+                    </h3>
 
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-950/60 text-slate-400 uppercase font-mono text-[10px]">
-                          <tr>
-                            <th className="p-3">Insumo</th>
-                            <th className="p-3 text-right">Estoque</th>
-                            <th className="p-3 text-right">Demanda Lote</th>
-                            <th className="p-3 text-right">Saldo Previsto</th>
-                            <th className="p-3 text-right">Sugestão Compra</th>
+                        <thead>
+                          <tr className="border-b border-slate-800 text-slate-400">
+                            <th className="pb-3">Insumo</th>
+                            <th className="pb-3">Qtd. Un</th>
+                            <th className="pb-3">Perda %</th>
+                            <th className="pb-3">Custo Un.</th>
+                            <th className="pb-3">Total</th>
+                            <th className="pb-3 text-right">Ação</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                          {materialNeeds.map(item => {
-                            const balance = item.stock - item.requiredQty;
-                            const toBuy = balance < 0 ? Math.abs(balance) : 0;
+                        <tbody className="divide-y divide-slate-800/50">
+                          {currentBomItems.map(item => {
+                            const qtdTotal = item.quantidade * (1 + item.perda_tecnica_pct / 100);
+                            const itemTotal = qtdTotal * item.custo_unitario;
                             return (
-                              <tr key={item.code} className="hover:bg-slate-800/40">
-                                <td className="p-3 font-semibold text-slate-200">{item.name}</td>
-                                <td className="p-3 text-right font-mono text-slate-400">{item.stock}</td>
-                                <td className="p-3 text-right font-mono text-sky-400 font-bold">{item.requiredQty.toFixed(2)}</td>
-                                <td className={`p-3 text-right font-mono font-bold ${balance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                                  {balance.toFixed(2)}
-                                </td>
-                                <td className="p-3 text-right font-mono font-bold text-amber-400">
-                                  {toBuy > 0 ? `${toBuy.toFixed(2)} ${item.unit}` : '-'}
+                              <tr key={item.id} className="text-slate-300 hover:bg-slate-900/40">
+                                <td className="py-3 font-medium text-white">{item.insumo_nome}</td>
+                                <td className="py-3">{item.quantidade} {item.unidade}</td>
+                                <td className="py-3 text-amber-400">{item.perda_tecnica_pct}%</td>
+                                <td className="py-3">R$ {item.custo_unitario.toFixed(2)}</td>
+                                <td className="py-3 font-semibold text-emerald-400">R$ {itemTotal.toFixed(2)}</td>
+                                <td className="py-3 text-right">
+                                  <button
+                                    onClick={() => handleRemoveInsumo(item.id)}
+                                    className="text-rose-400 hover:text-rose-300 p-1"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
                                 </td>
                               </tr>
                             );
@@ -792,119 +539,260 @@ return (
                     </div>
                   </div>
                 </div>
+              ) : (
+                <div className="text-center py-12 bg-slate-900/20 border border-slate-800/50 rounded-3xl text-slate-500 text-xs">
+                  Selecione um modelo de trailer acima para visualizar e editar sua estrutura BOM.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* VISÃO 2: FICHA DE PRODUÇÃO (MRP) */}
+          {activeTab === 'mrp' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* LOTE DE MONTAGEM */}
+                <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
+                  <h3 className="text-sm font-bold text-white mb-4">Montar Lote de Fabricação</h3>
+                  <form onSubmit={handleAddToPlan} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">MODELO DO TRAILER</label>
+                      <select
+                        value={selectedPlanBomId}
+                        onChange={e => setSelectedPlanBomId(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                      >
+                        <option value="">-- Escolher Trailer --</option>
+                        {trailers.map(t => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">QUANTIDADE DO LOTE</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={planQty}
+                        onChange={e => setPlanQty(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold py-2.5 rounded-xl transition-all text-xs"
+                    >
+                      ADICIONAR AO LOTE DE PRODUÇÃO
+                    </button>
+                  </form>
+                </div>
+
+                {/* EXPLOSÃO DE DEMANDA MRP E EXPORTAÇÃO CSV */}
+                <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-white">Consolidação de Matéria-Prima (MRP)</h3>
+                    <button
+                      onClick={exportMRPToCSV}
+                      className="flex items-center gap-2 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
+                    >
+                      <Download className="w-4 h-4" /> Exportar CSV Excel
+                    </button>
+                  </div>
+
+                  <div className="space-y-3 mb-6">
+                    {productionPlan.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-slate-950/60 px-4 py-2.5 rounded-xl border border-slate-800/60 text-xs">
+                        <span className="text-white font-medium">{item.name} ({item.code})</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-cyan-400 font-bold">{item.qty} Unidades</span>
+                          <button onClick={() => handleRemoveFromPlan(idx)} className="text-rose-400 hover:text-rose-300">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="text-xs text-slate-400 mb-2 font-semibold">Demanda Consolidada de Matérias-Primas:</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400">
+                          <th className="pb-2">Insumo</th>
+                          <th className="pb-2">Demanda Total</th>
+                          <th className="pb-2">Custo Consolidado</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/40">
+                        {bomItems.map(item => {
+                          const qtdConsolidada = item.quantidade * (1 + item.perda_tecnica_pct / 100);
+                          return (
+                            <tr key={item.id} className="text-slate-300">
+                              <td className="py-2.5 font-medium">{item.insumo_nome}</td>
+                              <td className="py-2.5 text-cyan-400">{qtdConsolidada.toFixed(2)} {item.unidade}</td>
+                              <td className="py-2.5 font-semibold text-emerald-400">R$ {(qtdConsolidada * item.custo_unitario).toFixed(2)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
-          {/* TAB 4: PRECIFICAÇÃO */}
+          {/* VISÃO 3: PRECIFICAÇÃO INDUSTRIAL (APENAS ADMIN) */}
           {activeTab === 'pricing' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-xl space-y-6">
-                <h3 className="text-xs font-bold uppercase text-emerald-400 font-mono">Simulador de Markup</h3>
-                <div className="space-y-5">
-                  <div>
-                    <label className="text-xs text-slate-400 block mb-2">Overhead Fixo: {overheadPercent}%</label>
-                    <input type="range" min="0" max="30" value={overheadPercent} onChange={e => setOverheadPercent(parseFloat(e.target.value))} className="w-full accent-sky-400" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-400 block mb-2">Impostos: {taxPercent}%</label>
-                    <input type="range" min="0" max="40" value={taxPercent} onChange={e => setTaxPercent(parseFloat(e.target.value))} className="w-full accent-rose-400" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-400 block mb-2">Lucro Líquido: {marginPercent}%</label>
-                    <input type="range" min="0" max="50" value={marginPercent} onChange={e => setMarginPercent(parseFloat(e.target.value))} className="w-full accent-emerald-400" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 rounded-3xl p-7 backdrop-blur-xl flex flex-col justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-200 mb-6">Formação de Preço Sugerido (Tributação Por Dentro)</h3>
-                  <div className="p-6 bg-slate-950 rounded-2xl border border-slate-800 space-y-4">
-                    <span className="text-xs font-mono text-sky-400 uppercase">Preço Final de Venda Recomendado</span>
-                    <p className="text-4xl font-extrabold font-mono text-white">R$ {suggestedPrice.toFixed(2)}</p>
-                    <div className="grid grid-cols-3 gap-4 pt-4 border-t border-slate-800 text-xs font-medium">
-                      <div><span className="text-slate-500 block">Custo Direto:</span><span className="text-slate-200 font-mono">R$ {totalCost.toFixed(2)}</span></div>
-                      <div><span className="text-slate-500 block">Impostos Total:</span><span className="text-rose-400 font-mono">R$ {taxValue.toFixed(2)}</span></div>
-                      <div><span className="text-slate-500 block">Lucro Projetado:</span><span className="text-emerald-400 font-mono">R$ {netProfitValue.toFixed(2)}</span></div>
+            isAdmin ? (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* CONFIGURADOR DE ALÍQUOTAS */}
+                <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
+                  <h3 className="text-sm font-bold text-white mb-4">Markup por Dentro</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">OVERHEAD DIRETO (%)</label>
+                      <input
+                        type="number"
+                        value={overheadPercent}
+                        onChange={e => setOverheadPercent(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">IMPOSTOS / SIMPLES (%)</label>
+                      <input
+                        type="number"
+                        value={taxPercent}
+                        onChange={e => setTaxPercent(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">MARGEM LÍQUIDA (%)</label>
+                      <input
+                        type="number"
+                        value={marginPercent}
+                        onChange={e => setMarginPercent(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                      />
                     </div>
                   </div>
                 </div>
+
+                {/* DRE SIMPLIFICADO E PREÇO FINAL */}
+                <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-white mb-6">Demonstrativo Financeiro (DRE Estimado)</h3>
+                    <div className="space-y-3 text-xs">
+                      <div className="flex justify-between py-2 border-b border-slate-800">
+                        <span className="text-slate-400">Custo Direto BOM (Matéria-Prima):</span>
+                        <span className="font-semibold text-white">R$ {custoDiretoBOM.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b border-slate-800">
+                        <span className="text-slate-400">Overhead Rate ({overheadPercent}%):</span>
+                        <span className="font-semibold text-indigo-400">R$ {valorOverhead.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b border-slate-800">
+                        <span className="text-slate-400">Impostos Alíquota ({taxPercent}%):</span>
+                        <span className="font-semibold text-rose-400">R$ {valorImpostos.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between py-2 border-b border-slate-800">
+                        <span className="text-slate-400">Margem Industrial ({marginPercent}%):</span>
+                        <span className="font-semibold text-emerald-400">R$ {valorMargem.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-8 p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl flex items-center justify-between">
+                    <div>
+                      <span className="text-xs text-cyan-400 font-semibold block">PREÇO SUGERIDO DE VENDA</span>
+                      <span className="text-2xl font-bold text-white">R$ {precoFinalCalculado.toFixed(2)}</span>
+                    </div>
+                    <DollarSign className="w-8 h-8 text-cyan-400" />
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : <AccessDeniedView />
           )}
 
-          {/* TAB 5: SNAPSHOTS */}
+          {/* VISÃO 4: SNAPSHOTS (APENAS ADMIN) */}
           {activeTab === 'snapshots' && (
-            <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-7 backdrop-blur-xl space-y-6">
-              <h3 className="text-sm font-bold text-slate-200">Histórico de Snapshots Registrados</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950/60 text-slate-400 uppercase font-mono text-[10px]">
-                    <tr>
-                      <th className="p-3">Data</th>
-                      <th className="p-3">Descrição</th>
-                      <th className="p-3 text-right">Custo BOM</th>
-                      <th className="p-3 text-right">Preço Sugerido</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60 text-slate-300 font-mono">
-                    {snapshots.map(snap => (
-                      <tr key={snap.id} className="hover:bg-slate-800/40">
-                        <td className="p-3">{new Date(snap.created_at).toLocaleDateString('pt-BR')}</td>
-                        <td className="p-3 font-semibold text-slate-200">{snap.title}</td>
-                        <td className="p-3 text-right">R$ {parseFloat(snap.total_cost).toFixed(2)}</td>
-                        <td className="p-3 text-right font-bold text-sky-400">R$ {parseFloat(snap.suggested_price).toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            isAdmin ? (
+              <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
+                <h3 className="text-sm font-bold text-white mb-4">Congelamento de Histórico Financeiro</h3>
+                <p className="text-xs text-slate-400">Nenhum snapshot financeiro gravado recentemente.</p>
               </div>
-            </div>
+            ) : <AccessDeniedView />
           )}
-        </main>
-      </div>
+
+        </div>
+      </main>
 
       {/* MODAL NOVO TRAILER */}
       {showNewBomModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <form onSubmit={handleCreateNewBom} className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white">Cadastrar Modelo de Trailer</h3>
-              <button type="button" onClick={() => setShowNewBomModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="space-y-3">
-              <input 
-                type="text" 
-                required
-                placeholder="Código (EX: TR-RACING-02)" 
-                value={newBomCode} 
-                onChange={e => setNewBomCode(e.target.value)} 
-                className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-xs font-mono text-slate-100 uppercase"
-              />
-              <input 
-                type="text" 
-                required
-                placeholder="Nome do Modelo" 
-                value={newBomName} 
-                onChange={e => setNewBomName(e.target.value)} 
-                className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-xs text-slate-100"
-              />
-            </div>
-            <div className="flex gap-3 pt-2">
-              <button type="button" onClick={() => setShowNewBomModal(false)} className="w-1/2 py-3 bg-slate-800 rounded-2xl text-xs text-slate-300">Cancelar</button>
-              <button 
-                type="submit" 
-                className="w-1/2 py-3 bg-sky-400 hover:bg-sky-300 text-slate-950 font-bold rounded-2xl text-xs transition-colors"
-              >
-                Cadastrar Modelo
-              </button>
-            </div>
-          </form>
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md space-y-4">
+            <h3 className="text-base font-bold text-white">Novo Modelo de Trailer</h3>
+            <form onSubmit={handleCreateTrailer} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">CÓDIGO DO MODELO</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: TR-BAU-01"
+                  value={newBomCode}
+                  onChange={e => setNewBomCode(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">NOME DO REBOQUE</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Trailer Baú Motocross Premium"
+                  value={newBomName}
+                  onChange={e => setNewBomName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNewBomModal(false)}
+                  className="w-1/2 py-2.5 rounded-xl border border-slate-800 text-slate-400 hover:bg-slate-800 text-xs font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-2.5 rounded-xl bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 text-xs shadow-lg shadow-cyan-500/20"
+                >
+                  Cadastrar
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
+
     </div>
-);
+  );
 }
+
+// COMPONENTE DE TELA RESTRITA PARA OPERADOR
+const AccessDeniedView = () => (
+  <div className="flex flex-col items-center justify-center h-64 bg-slate-950/60 border border-slate-800 rounded-3xl p-8 text-center backdrop-blur-md">
+    <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-4">
+      <ShieldAlert className="w-6 h-6 text-rose-500" />
+    </div>
+    <h3 className="text-lg font-bold text-white mb-1">Acesso Restrito</h3>
+    <p className="text-sm text-slate-400 max-w-sm">
+      Seu perfil de <span className="text-cyan-400 font-semibold">Operador</span> possui permissão de acesso exclusivamente à Engenharia (BOM) e MRP.
+    </p>
+  </div>
+);
