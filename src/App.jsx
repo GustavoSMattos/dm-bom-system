@@ -280,7 +280,7 @@ export default function App() {
   // ==========================================
   const allMenuItems = [
     { id: 'bom', label: 'Engenharia & BOM', icon: Wrench, roles: ['Admin', 'Operador'] },
-    { id: 'mrp', label: 'Relação estoque / MRP', icon: Factory, roles: ['Admin', 'Operador'] },
+    { id: 'mrp', label: 'Ficha de Produção / MRP', icon: Factory, roles: ['Admin', 'Operador'] },
     { id: 'pricing', label: 'Precificação Industrial', icon: Calculator, roles: ['Admin'] },
     { id: 'snapshots', label: 'Snapshots Financeiros', icon: History, roles: ['Admin'] },
     { id: 'users', label: 'Gerenciamento de Usuários', icon: Users, roles: ['Admin'] },
@@ -306,7 +306,7 @@ export default function App() {
               <Factory className="w-6 h-6 text-cyan-400" />
             </div>
             <h1 className="text-2xl font-bold text-white tracking-wider">DM TRAILERS</h1>
-            <p className="text-xs text-slate-400 mt-1"></p>
+            <p className="text-xs text-slate-400 mt-1">Acesso Restrito à Plataforma</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
@@ -343,7 +343,7 @@ export default function App() {
           </form>
 
           <p className="text-[11px] text-slate-500 text-center mt-6">
-            Quaiquer problemas, contate o gestor do sistema.
+            Novos usuários devem ser cadastrados diretamente no console Supabase.
           </p>
         </div>
       </div>
@@ -427,7 +427,7 @@ export default function App() {
               {activeTab === 'snapshots' && 'Histórico de Snapshots Financeiros'}
               {activeTab === 'users' && 'Painel de Gerenciamento de Usuários'}
             </h1>
-            <p className="text-xs text-slate-400 mt-0.5">DM Indústria e Comércio de Reboques LTDA</p>
+            <p className="text-xs text-slate-400 mt-0.5">DM Comércio e Indústria de Reboques LTDA</p>
           </div>
 
           {/* BOTÕES DE AÇÃO: SINCRONIZAR OMIE + NOVO TRAILER */}
