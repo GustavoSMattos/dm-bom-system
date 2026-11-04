@@ -9,14 +9,10 @@ import {
   Download, 
   LogOut, 
   ShieldAlert, 
-  ChevronRight, 
-  Layers, 
-  TrendingUp, 
+  Users,
   DollarSign, 
-  PackageCheck, 
-  AlertTriangle 
+  UserPlus
 } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { supabase } from './lib/supabase';
 
 export default function App() {
@@ -25,9 +21,14 @@ export default function App() {
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [registerRole, setRegisterRole] = useState('Operador'); // Perfil fixado no cadastro
-  const [isRegistering, setIsRegistering] = useState(false);
+  const [userRole, setUserRole] = useState('Operador'); // Carregado do banco
   const [activeTab, setActiveTab] = useState('bom');
+
+  // --- ESTADO PARA CRIAÇÃO DE USUÁRIOS (APENAS ADMIN) ---
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserRole, setNewUserRole] = useState('Operador');
+  const [creatingUser, setCreatingUser] = useState(false);
 
   // --- ESTADOS DE DADOS (TRAILERS E INSUMOS) ---
   const [trailers, setTrailers] = useState([]);
@@ -41,7 +42,6 @@ export default function App() {
   const [newBomName, setNewBomName] = useState('');
 
   // --- FICHA DE PRODUÇÃO (MRP) ---
-  // CORRIGIDO: Inicializado como array vazio sem IDs "b1" estáticos
   const [productionPlan, setProductionPlan] = useState([]);
   const [selectedPlanBomId, setSelectedPlanBomId] = useState('');
   const [planQty, setPlanQty] = useState(1);
@@ -57,22 +57,50 @@ export default function App() {
   const [inputLoss, setInputLoss] = useState(3);
 
   // ==========================================
-  // INICIALIZAÇÃO DE SESSÃO E SUPABASE
+  // BUSCA PERFIL DO USUÁRIO NA TABELA PROFILES
   // ==========================================
+  const fetchUserProfile = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.error("Erro ao buscar perfil:", error.message);
+        setUserRole('Operador');
+      } else if (data) {
+        setUserRole(data.role);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar role:", err);
+      setUserRole('Operador');
+    }
+  };
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      }
       setLoadingAuth(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      } else {
+        setUserRole('Operador');
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Carrega produtos vindos da API do Omie
+  // Carrega produtos do Omie ERP
   useEffect(() => {
     async function fetchOmieProdutos() {
       try {
@@ -88,37 +116,22 @@ export default function App() {
     fetchOmieProdutos();
   }, []);
 
-  // Recuperar perfil do usuário (Admin ou Operador)
-  const userRole = session?.user?.user_metadata?.role || 'Operador';
   const isAdmin = userRole === 'Admin';
 
-  // Ajusta a aba padrão se o operador não tiver permissão
+  // Proteção de rotas ativas
   useEffect(() => {
-    if (!isAdmin && (activeTab === 'pricing' || activeTab === 'snapshots')) {
+    if (!isAdmin && (activeTab === 'pricing' || activeTab === 'snapshots' || activeTab === 'users')) {
       setActiveTab('bom');
     }
   }, [userRole, activeTab, isAdmin]);
 
   // ==========================================
-  // AUTENTICAÇÃO E CADASTRO COM PERFIL FIXO
+  // AUTENTICAÇÃO (APENAS LOGIN)
   // ==========================================
-  const handleAuth = async (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (isRegistering) {
-      // Cadastro fixando a Categoria (Role) nos metadados da conta
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { role: registerRole }
-        }
-      });
-      if (error) alert("Erro ao cadastrar: " + error.message);
-      else alert(`Conta de ${registerRole} criada com sucesso! Faça login.`);
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) alert("Erro ao realizar login: " + error.message);
-    }
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) alert("Erro ao realizar login: " + error.message);
   };
 
   const handleLogout = async () => {
@@ -126,13 +139,50 @@ export default function App() {
   };
 
   // ==========================================
-  // AÇÕES DE CADASTRO DE TRAILERS E INSUMOS (BOM)
+  // CADASTRO DE NOVO USUÁRIO (APENAS POR ADMIN)
+  // ==========================================
+  const handleAdminCreateUser = async (e) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+    setCreatingUser(true);
+
+    try {
+      // Criação via signUp mantendo o controle de role no banco
+      const { data, error } = await supabase.auth.signUp({
+        email: newUserEmail,
+        password: newUserPassword,
+        options: {
+          data: { role: newUserRole }
+        }
+      });
+
+      if (error) throw error;
+
+      // Atualiza explicitamente a tabela profiles caso necessário
+      if (data?.user) {
+        await supabase
+          .from('profiles')
+          .upsert({ id: data.user.id, email: newUserEmail, role: newUserRole });
+      }
+
+      alert(`Usuário ${newUserEmail} cadastrado com sucesso como ${newUserRole}!`);
+      setNewUserEmail('');
+      setNewUserPassword('');
+      setNewUserRole('Operador');
+    } catch (err) {
+      alert("Erro ao criar usuário: " + err.message);
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
+  // ==========================================
+  // AÇÕES DE CADASTRO DE TRAILERS E INSUMOS
   // ==========================================
   const handleCreateTrailer = (e) => {
     e.preventDefault();
     if (!newBomCode || !newBomName) return;
 
-    // Gera um UUID válido para o novo modelo de trailer
     const newTrailer = {
       id: crypto.randomUUID(),
       code: newBomCode,
@@ -154,7 +204,6 @@ export default function App() {
     const nomeInsumo = prodObj ? prodObj.descricao : `Insumo #${selectedProductId}`;
     const custoUnit = prodObj ? (prodObj.valor_unitario || 10) : 10;
 
-    // CORRIGIDO: Payload sem ID sintético "b1" (PostgreSQL gera UUID v4 limpo)
     const newInsumo = {
       id: crypto.randomUUID(),
       trailer_id: selectedTrailerId,
@@ -198,7 +247,6 @@ export default function App() {
     setProductionPlan(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Exportar relatório MRP para CSV compatível com Excel Brasil
   const exportMRPToCSV = () => {
     let csvContent = "\uFEFFInsumo;Quantidade Necessária;Unidade;Perda Técnica (%);Custo Estimado (R$)\n";
     
@@ -238,18 +286,19 @@ export default function App() {
   const valorMargem = precoFinalCalculado * (marginPercent / 100);
 
   // ==========================================
-  // DEFINIÇÃO DO MENU LATERAL (SIDEBAR COM RBAC)
+  // MENUS DA SIDEBAR COM CONTROLE RBAC
   // ==========================================
   const allMenuItems = [
     { id: 'bom', label: 'Engenharia & BOM', icon: Wrench, roles: ['Admin', 'Operador'] },
     { id: 'mrp', label: 'Ficha de Produção / MRP', icon: Factory, roles: ['Admin', 'Operador'] },
     { id: 'pricing', label: 'Precificação Industrial', icon: Calculator, roles: ['Admin'] },
     { id: 'snapshots', label: 'Snapshots Financeiros', icon: History, roles: ['Admin'] },
+    { id: 'users', label: 'Gerenciamento de Usuários', icon: Users, roles: ['Admin'] },
   ];
 
   const visibleMenuItems = allMenuItems.filter(item => item.roles.includes(userRole));
 
-  // RENDERIZAÇÃO DA TELA DE LOGIN / CADASTRO
+  // TELA DE LOGIN (SEM CADASTRO PÚBLICO)
   if (loadingAuth) {
     return (
       <div className="min-h-screen bg-[#060911] flex items-center justify-center text-slate-400">
@@ -267,17 +316,17 @@ export default function App() {
               <Factory className="w-6 h-6 text-cyan-400" />
             </div>
             <h1 className="text-2xl font-bold text-white tracking-wider">DM TRAILERS</h1>
-            <p className="text-xs text-slate-400 mt-1">BOM & MRP Industrial System</p>
+            <p className="text-xs text-slate-400 mt-1">Acesso Restrito à Plataforma</p>
           </div>
 
-          <form onSubmit={handleAuth} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-400 mb-1">E-MAIL</label>
               <input 
                 type="email" 
                 required
                 className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500"
-                placeholder="usuario@dmtrailers.com.br"
+                placeholder="seu.email@dmtrailers.com.br"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
               />
@@ -295,37 +344,17 @@ export default function App() {
               />
             </div>
 
-            {isRegistering && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">CATEGORIA DO USUÁRIO</label>
-                <select
-                  value={registerRole}
-                  onChange={e => setRegisterRole(e.target.value)}
-                  className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500"
-                >
-                  <option value="Operador">Operador (Engenharia & MRP)</option>
-                  <option value="Admin">Admin (Acesso Total + Financeiro)</option>
-                </select>
-                <p className="text-[10px] text-slate-500 mt-1">* A categoria é fixada no cadastro e não poderá ser alterada na plataforma.</p>
-              </div>
-            )}
-
             <button 
               type="submit"
               className="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-3 rounded-xl transition-all shadow-lg shadow-cyan-500/20 text-sm mt-2"
             >
-              {isRegistering ? 'CADASTRAR CONTA' : 'ACESSAR SISTEMA'}
+              ENTRAR NO SISTEMA
             </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => setIsRegistering(!isRegistering)}
-              className="text-xs text-slate-400 hover:text-cyan-400 transition-colors"
-            >
-              {isRegistering ? 'Já possui uma conta? Faça Login' : 'Novo por aqui? Cadastre um usuário'}
-            </button>
-          </div>
+          <p className="text-[11px] text-slate-500 text-center mt-6">
+            Novos cadastros de operadores devem ser solicitados ao administrador do sistema.
+          </p>
         </div>
       </div>
     );
@@ -337,18 +366,16 @@ export default function App() {
       {/* SIDEBAR LATERAL DE NAVEGAÇÃO */}
       <aside className="w-64 bg-slate-950/80 border-r border-slate-900 flex flex-col justify-between backdrop-blur-xl">
         <div>
-          {/* LOGO */}
           <div className="p-6 border-b border-slate-900 flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
               <Factory className="w-5 h-5 text-cyan-400" />
             </div>
             <div>
               <h2 className="text-sm font-bold text-white tracking-wider">DM TRAILERS</h2>
-              <span className="text-[10px] text-slate-400 font-mono">v2.4 • BOM SYSTEM</span>
+              <span className="text-[10px] text-slate-400 font-mono">v2.5 • INDUSTRIAL</span>
             </div>
           </div>
 
-          {/* MENUS DINÂMICOS CONFORME PERFIL (RBAC) */}
           <nav className="p-4 space-y-1.5">
             {visibleMenuItems.map((item) => {
               const Icon = item.icon;
@@ -371,13 +398,16 @@ export default function App() {
           </nav>
         </div>
 
-        {/* PERFIL DO USUÁRIO & LOGOUT */}
         <div className="p-4 border-t border-slate-900">
           <div className="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-3 mb-3">
             <div className="text-xs font-medium text-slate-300 truncate">{session.user.email}</div>
             <div className="flex items-center gap-1.5 mt-1">
               <span className="text-[10px] text-slate-500">Perfil:</span>
-              <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20">
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                isAdmin 
+                  ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' 
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              }`}>
                 {userRole}
               </span>
             </div>
@@ -393,10 +423,9 @@ export default function App() {
         </div>
       </aside>
 
-      {/* ÁREA DE CONTEÚDO PRINCIPAL */}
+      {/* ÁREA PRINCIPAL */}
       <main className="flex-1 flex flex-col h-screen overflow-y-auto bg-slate-950/20">
         
-        {/* HEADER */}
         <header className="px-8 py-5 border-b border-slate-900/80 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-white">
@@ -404,6 +433,7 @@ export default function App() {
               {activeTab === 'mrp' && 'Planejamento de Fabricação (MRP)'}
               {activeTab === 'pricing' && 'Precificação Industrial (Markup por Dentro)'}
               {activeTab === 'snapshots' && 'Histórico de Snapshots Financeiros'}
+              {activeTab === 'users' && 'Gerenciamento de Acessos & Usuários'}
             </h1>
             <p className="text-xs text-slate-400 mt-0.5">DM Comércio e Indústria de Reboques LTDA</p>
           </div>
@@ -417,13 +447,11 @@ export default function App() {
           </button>
         </header>
 
-        {/* CORPO DE VIEWS */}
         <div className="p-8">
           
-          {/* VISÃO 1: ENGENHARIA & ÁRVORE BOM */}
+          {/* VISÃO 1: ENGENHARIA & BOM */}
           {activeTab === 'bom' && (
             <div className="space-y-6">
-              {/* SELETOR DE TRAILER */}
               <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
                 <label className="block text-xs font-semibold text-slate-400 mb-2">SELECIONE O MODELO DE REBOQUE</label>
                 <select
@@ -440,10 +468,9 @@ export default function App() {
 
               {selectedTrailer ? (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* FORMULÁRIO ADICIONAR INSUMO */}
                   <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
                     <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
-                      <Plus className="w-4 h-4 text-cyan-400" /> Adicionar Insumo à Estrutura
+                      <Plus className="w-4 h-4 text-cyan-400" /> Adicionar Insumo
                     </h3>
                     <form onSubmit={handleAddInsumo} className="space-y-4">
                       <div>
@@ -493,7 +520,6 @@ export default function App() {
                     </form>
                   </div>
 
-                  {/* TABELA DE ESTRUTURA BOM */}
                   <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
                     <h3 className="text-sm font-bold text-white mb-4 flex items-center justify-between">
                       <span>Árvore de Materiais: {selectedTrailer.name}</span>
@@ -551,7 +577,6 @@ export default function App() {
           {activeTab === 'mrp' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* LOTE DE MONTAGEM */}
                 <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
                   <h3 className="text-sm font-bold text-white mb-4">Montar Lote de Fabricação</h3>
                   <form onSubmit={handleAddToPlan} className="space-y-4">
@@ -589,7 +614,6 @@ export default function App() {
                   </form>
                 </div>
 
-                {/* EXPLOSÃO DE DEMANDA MRP E EXPORTAÇÃO CSV */}
                 <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-bold text-white">Consolidação de Matéria-Prima (MRP)</h3>
@@ -648,7 +672,6 @@ export default function App() {
           {activeTab === 'pricing' && (
             isAdmin ? (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* CONFIGURADOR DE ALÍQUOTAS */}
                 <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
                   <h3 className="text-sm font-bold text-white mb-4">Markup por Dentro</h3>
                   <div className="space-y-4">
@@ -682,7 +705,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* DRE SIMPLIFICADO E PREÇO FINAL */}
                 <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md flex flex-col justify-between">
                   <div>
                     <h3 className="text-sm font-bold text-white mb-6">Demonstrativo Financeiro (DRE Estimado)</h3>
@@ -724,6 +746,69 @@ export default function App() {
               <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
                 <h3 className="text-sm font-bold text-white mb-4">Congelamento de Histórico Financeiro</h3>
                 <p className="text-xs text-slate-400">Nenhum snapshot financeiro gravado recentemente.</p>
+              </div>
+            ) : <AccessDeniedView />
+          )}
+
+          {/* VISÃO 5: GERENCIAMENTO DE USUÁRIOS (APENAS ADMIN) */}
+          {activeTab === 'users' && (
+            isAdmin ? (
+              <div className="max-w-xl mx-auto bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
+                    <UserPlus className="w-5 h-5 text-cyan-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Cadastrar Novo Usuário</h3>
+                    <p className="text-xs text-slate-400">Adicione novos membros da equipe e defina o nível de acesso.</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleAdminCreateUser} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">E-MAIL DO NOVO USUÁRIO</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="operador@dmtrailers.com.br"
+                      value={newUserEmail}
+                      onChange={e => setNewUserEmail(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">SENHA INICIAL</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="••••••••"
+                      value={newUserPassword}
+                      onChange={e => setNewUserPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">PERFIL / NIVEL DE ACESSO</label>
+                    <select
+                      value={newUserRole}
+                      onChange={e => setNewUserRole(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                    >
+                      <option value="Operador">Operador (Engenharia & MRP)</option>
+                      <option value="Admin">Admin (Acesso Total + Precificação)</option>
+                    </select>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={creatingUser}
+                    className="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-3 rounded-xl transition-all shadow-lg shadow-cyan-500/20 text-xs mt-2"
+                  >
+                    {creatingUser ? 'CADASTRANDO...' : 'CRIAR CONTA DE USUÁRIO'}
+                  </button>
+                </form>
               </div>
             ) : <AccessDeniedView />
           )}
@@ -784,7 +869,7 @@ export default function App() {
   );
 }
 
-// COMPONENTE DE TELA RESTRITA PARA OPERADOR
+// COMPONENTE DE ACESSO NEGADO
 const AccessDeniedView = () => (
   <div className="flex flex-col items-center justify-center h-64 bg-slate-950/60 border border-slate-800 rounded-3xl p-8 text-center backdrop-blur-md">
     <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-4">
