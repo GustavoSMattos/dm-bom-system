@@ -11,7 +11,9 @@ import {
   ShieldAlert, 
   Users,
   DollarSign, 
-  UserPlus
+  UserCheck,
+  Clock,
+  RefreshCw
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
@@ -21,14 +23,12 @@ export default function App() {
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [userRole, setUserRole] = useState('Operador'); // Carregado do banco
+  const [userRole, setUserRole] = useState('Operador');
   const [activeTab, setActiveTab] = useState('bom');
 
-  // --- ESTADO PARA CRIAÇÃO DE USUÁRIOS (APENAS ADMIN) ---
-  const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserPassword, setNewUserPassword] = useState('');
-  const [newUserRole, setNewUserRole] = useState('Operador');
-  const [creatingUser, setCreatingUser] = useState(false);
+  // --- ESTADO DA LISTA DE USUÁRIOS (GERENCIAMENTO) ---
+  const [registeredUsers, setRegisteredUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
 
   // --- ESTADOS DE DADOS (TRAILERS E INSUMOS) ---
   const [trailers, setTrailers] = useState([]);
@@ -46,7 +46,7 @@ export default function App() {
   const [selectedPlanBomId, setSelectedPlanBomId] = useState('');
   const [planQty, setPlanQty] = useState(1);
 
-  // --- PARÂMETROS FINANCEIROS (MARKUP POR DENTRO) ---
+  // --- PARÂMETROS FINANCEIROS ---
   const [overheadPercent, setOverheadPercent] = useState(12);
   const [taxPercent, setTaxPercent] = useState(15);
   const [marginPercent, setMarginPercent] = useState(25);
@@ -57,7 +57,7 @@ export default function App() {
   const [inputLoss, setInputLoss] = useState(3);
 
   // ==========================================
-  // BUSCA PERFIL DO USUÁRIO NA TABELA PROFILES
+  // BUSCA PERFIL E LISTA DE USUÁRIOS NO POSTGRESQL
   // ==========================================
   const fetchUserProfile = async (userId) => {
     try {
@@ -76,6 +76,23 @@ export default function App() {
     } catch (err) {
       console.error("Erro ao carregar role:", err);
       setUserRole('Operador');
+    }
+  };
+
+  const fetchRegisteredUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, email, nome, role, ultimo_acesso, created_at')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setRegisteredUsers(data || []);
+    } catch (err) {
+      console.error("Erro ao carregar lista de usuários:", err.message);
+    } finally {
+      setLoadingUsers(false);
     }
   };
 
@@ -100,6 +117,13 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Busca lista de usuários quando o Admin entra na aba de usuários
+  useEffect(() => {
+    if (activeTab === 'users' && userRole === 'Admin') {
+      fetchRegisteredUsers();
+    }
+  }, [activeTab, userRole]);
+
   // Carrega produtos do Omie ERP
   useEffect(() => {
     async function fetchOmieProdutos() {
@@ -118,7 +142,7 @@ export default function App() {
 
   const isAdmin = userRole === 'Admin';
 
-  // Proteção de rotas ativas
+  // Proteção de acesso
   useEffect(() => {
     if (!isAdmin && (activeTab === 'pricing' || activeTab === 'snapshots' || activeTab === 'users')) {
       setActiveTab('bom');
@@ -126,7 +150,7 @@ export default function App() {
   }, [userRole, activeTab, isAdmin]);
 
   // ==========================================
-  // AUTENTICAÇÃO (APENAS LOGIN)
+  // AUTENTICAÇÃO (LOGIN / LOGOUT)
   // ==========================================
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -139,45 +163,7 @@ export default function App() {
   };
 
   // ==========================================
-  // CADASTRO DE NOVO USUÁRIO (APENAS POR ADMIN)
-  // ==========================================
-  const handleAdminCreateUser = async (e) => {
-    e.preventDefault();
-    if (!isAdmin) return;
-    setCreatingUser(true);
-
-    try {
-      // Criação via signUp mantendo o controle de role no banco
-      const { data, error } = await supabase.auth.signUp({
-        email: newUserEmail,
-        password: newUserPassword,
-        options: {
-          data: { role: newUserRole }
-        }
-      });
-
-      if (error) throw error;
-
-      // Atualiza explicitamente a tabela profiles caso necessário
-      if (data?.user) {
-        await supabase
-          .from('profiles')
-          .upsert({ id: data.user.id, email: newUserEmail, role: newUserRole });
-      }
-
-      alert(`Usuário ${newUserEmail} cadastrado com sucesso como ${newUserRole}!`);
-      setNewUserEmail('');
-      setNewUserPassword('');
-      setNewUserRole('Operador');
-    } catch (err) {
-      alert("Erro ao criar usuário: " + err.message);
-    } finally {
-      setCreatingUser(false);
-    }
-  };
-
-  // ==========================================
-  // AÇÕES DE CADASTRO DE TRAILERS E INSUMOS
+  // AÇÕES DE TRAILERS, INSUMOS E MRP
   // ==========================================
   const handleCreateTrailer = (e) => {
     e.preventDefault();
@@ -222,9 +208,6 @@ export default function App() {
     setBomItems(prev => prev.filter(item => item.id !== insumoId));
   };
 
-  // ==========================================
-  // AÇÕES DO MRP / FICHA DE PRODUÇÃO
-  // ==========================================
   const handleAddToPlan = (e) => {
     e.preventDefault();
     if (!selectedPlanBomId) return;
@@ -267,7 +250,7 @@ export default function App() {
   };
 
   // ==========================================
-  // CÁLCULOS FINANCEIROS E MARKUP POR DENTRO
+  // CÁLCULOS FINANCEIROS
   // ==========================================
   const selectedTrailer = trailers.find(t => t.id === selectedTrailerId);
   const currentBomItems = bomItems.filter(item => item.trailer_id === selectedTrailerId);
@@ -286,7 +269,7 @@ export default function App() {
   const valorMargem = precoFinalCalculado * (marginPercent / 100);
 
   // ==========================================
-  // MENUS DA SIDEBAR COM CONTROLE RBAC
+  // MENUS DA SIDEBAR
   // ==========================================
   const allMenuItems = [
     { id: 'bom', label: 'Engenharia & BOM', icon: Wrench, roles: ['Admin', 'Operador'] },
@@ -298,7 +281,7 @@ export default function App() {
 
   const visibleMenuItems = allMenuItems.filter(item => item.roles.includes(userRole));
 
-  // TELA DE LOGIN (SEM CADASTRO PÚBLICO)
+  // TELA DE LOGIN
   if (loadingAuth) {
     return (
       <div className="min-h-screen bg-[#060911] flex items-center justify-center text-slate-400">
@@ -353,7 +336,7 @@ export default function App() {
           </form>
 
           <p className="text-[11px] text-slate-500 text-center mt-6">
-            Novos cadastros de operadores devem ser solicitados ao administrador do sistema.
+            Novos usuários devem ser cadastrados diretamente no console Supabase.
           </p>
         </div>
       </div>
@@ -363,7 +346,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#060911] text-slate-100 flex overflow-hidden font-sans">
       
-      {/* SIDEBAR LATERAL DE NAVEGAÇÃO */}
+      {/* SIDEBAR LATERAL */}
       <aside className="w-64 bg-slate-950/80 border-r border-slate-900 flex flex-col justify-between backdrop-blur-xl">
         <div>
           <div className="p-6 border-b border-slate-900 flex items-center gap-3">
@@ -372,7 +355,7 @@ export default function App() {
             </div>
             <div>
               <h2 className="text-sm font-bold text-white tracking-wider">DM TRAILERS</h2>
-              <span className="text-[10px] text-slate-400 font-mono">v2.5 • INDUSTRIAL</span>
+              <span className="text-[10px] text-slate-400 font-mono">v2.6 • INDUSTRIAL</span>
             </div>
           </div>
 
@@ -433,7 +416,7 @@ export default function App() {
               {activeTab === 'mrp' && 'Planejamento de Fabricação (MRP)'}
               {activeTab === 'pricing' && 'Precificação Industrial (Markup por Dentro)'}
               {activeTab === 'snapshots' && 'Histórico de Snapshots Financeiros'}
-              {activeTab === 'users' && 'Gerenciamento de Acessos & Usuários'}
+              {activeTab === 'users' && 'Painel de Gerenciamento de Usuários'}
             </h1>
             <p className="text-xs text-slate-400 mt-0.5">DM Comércio e Indústria de Reboques LTDA</p>
           </div>
@@ -750,65 +733,86 @@ export default function App() {
             ) : <AccessDeniedView />
           )}
 
-          {/* VISÃO 5: GERENCIAMENTO DE USUÁRIOS (APENAS ADMIN) */}
+          {/* VISÃO 5: DISPLAY DE GERENCIAMENTO DE USUÁRIOS (APENAS ADMIN) */}
           {activeTab === 'users' && (
             isAdmin ? (
-              <div className="max-w-xl mx-auto bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
-                    <UserPlus className="w-5 h-5 text-cyan-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-white">Cadastrar Novo Usuário</h3>
-                    <p className="text-xs text-slate-400">Adicione novos membros da equipe e defina o nível de acesso.</p>
-                  </div>
-                </div>
-
-                <form onSubmit={handleAdminCreateUser} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">E-MAIL DO NOVO USUÁRIO</label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="operador@dmtrailers.com.br"
-                      value={newUserEmail}
-                      onChange={e => setNewUserEmail(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">SENHA INICIAL</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="••••••••"
-                      value={newUserPassword}
-                      onChange={e => setNewUserPassword(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-1">PERFIL / NIVEL DE ACESSO</label>
-                    <select
-                      value={newUserRole}
-                      onChange={e => setNewUserRole(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500"
-                    >
-                      <option value="Operador">Operador (Engenharia & MRP)</option>
-                      <option value="Admin">Admin (Acesso Total + Precificação)</option>
-                    </select>
+              <div className="bg-slate-900/40 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md space-y-6">
+                <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
+                      <UserCheck className="w-5 h-5 text-cyan-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-white">Usuários Cadastrados na Plataforma</h3>
+                      <p className="text-xs text-slate-400">Sincronização em tempo real com a base de dados do Supabase.</p>
+                    </div>
                   </div>
 
                   <button
-                    type="submit"
-                    disabled={creatingUser}
-                    className="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-3 rounded-xl transition-all shadow-lg shadow-cyan-500/20 text-xs mt-2"
+                    onClick={fetchRegisteredUsers}
+                    className="flex items-center gap-2 bg-slate-950 border border-slate-800 hover:border-slate-700 px-3 py-2 rounded-xl text-xs text-slate-300 font-semibold transition-all"
                   >
-                    {creatingUser ? 'CADASTRANDO...' : 'CRIAR CONTA DE USUÁRIO'}
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingUsers ? 'animate-spin' : ''}`} />
+                    Atualizar Lista
                   </button>
-                </form>
+                </div>
+
+                {/* TABELA DE USUÁRIOS CADASTRADOS */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400">
+                        <th className="pb-3">Nome / Usuário</th>
+                        <th className="pb-3">E-mail Cadastrado</th>
+                        <th className="pb-3">Categoria (Role)</th>
+                        <th className="pb-3">Último Acesso</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {registeredUsers.length > 0 ? (
+                        registeredUsers.map((u) => {
+                          const isUserAdmin = u.role === 'Admin';
+                          const ultimoAcessoFmt = u.ultimo_acesso 
+                            ? new Date(u.ultimo_acesso).toLocaleString('pt-BR') 
+                            : 'Nunca acessou';
+
+                          return (
+                            <tr key={u.id} className="text-slate-300 hover:bg-slate-900/40 transition-colors">
+                              <td className="py-3 font-semibold text-white flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-slate-300 text-[11px]">
+                                  {(u.nome || u.email || 'U').charAt(0).toUpperCase()}
+                                </div>
+                                {u.nome || u.email.split('@')[0]}
+                              </td>
+                              <td className="py-3 font-mono text-slate-400">{u.email}</td>
+                              <td className="py-3">
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                                  isUserAdmin 
+                                    ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' 
+                                    : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                }`}>
+                                  {u.role || 'Operador'}
+                                </span>
+                              </td>
+                              <td className="py-3 text-slate-400 font-mono">
+                                <div className="flex items-center gap-1.5">
+                                  <Clock className="w-3.5 h-3.5 text-slate-500" />
+                                  {ultimoAcessoFmt}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan="4" className="py-8 text-center text-slate-500 text-xs">
+                            {loadingUsers ? 'Carregando lista de usuários...' : 'Nenhum perfil encontrado no banco de dados.'}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : <AccessDeniedView />
           )}
